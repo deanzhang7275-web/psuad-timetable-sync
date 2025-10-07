@@ -35,7 +35,7 @@ async function fetchSchedule() {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "Cookie": `.ASPXAUTH=${COOKIE_ASPXAUTH}; ASP.NET_SessionId=${COOKIE_SESSION}`,
+      "Cookie": `.ASPXAUTH=${COOKIE_ASPXAUTH}`,
     },
     body: "r=0",
   });
