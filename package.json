@@ -1,0 +1,14 @@
+{
+  "name": "psuad-timetable-sync",
+  "version": "1.0.0",
+  "description": "Auto-sync PSUAD timetable to iCal",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "ics": "^3.5.0"
+  }
+}
