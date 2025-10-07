@@ -1,101 +1,101 @@
 /**
  * PSUAD Timetable Auto Sync Script
- * ---------------------------------
- * 每天自动抓取 PSUAD Portal 的课表数据，生成 schedule.ics
- * 可用于 iPhone / Google / Outlook 日历订阅
- *
- * 作者: ChatGPT 2025
+ * 每天抓取 PSUAD 课表，输出 schedule.ics
  */
 
 import fs from "fs";
 import fetch from "node-fetch";
 import ics from "ics";
 
-// PSUAD 接口
 const url = "https://reg.psuad.ac.ae/PSUADPortal/Timetable/GetTimeTable";
 
-// 从 GitHub Secrets 读取 cookie（你在 Settings → Secrets → Actions 添加的）
-const COOKIE_ASPXAUTH = process.env.COOKIE_ASPXAUTH;
-const COOKIE_SESSION = process.env.COOKIE_SESSION;
+const COOKIE_ASPXAUTH = process.env.COOKIE_ASPXAUTH || "";
+const COOKIE_SESSION  = process.env.COOKIE_SESSION || ""; // 你没有也不影响
 
-// 辅助函数：安全打印日志
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-// 主函数：抓取课表数据
 async function fetchSchedule() {
   log("Fetching schedule data...");
 
-  if (!COOKIE_ASPXAUTH || !COOKIE_SESSION) {
-    throw new Error("❌ 缺少 Cookie，请在 GitHub Secrets 中设置 COOKIE_ASPXAUTH 和 COOKIE_SESSION。");
+  if (!COOKIE_ASPXAUTH) {
+    throw new Error("缺少 COOKIE_ASPXAUTH（请到 GitHub Secrets 设置该值）");
   }
 
   const res = await fetch(url, {
     method: "POST",
     headers: {
+      // 模拟浏览器常见头
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "Cookie": `.ASPXAUTH=${COOKIE_ASPXAUTH}`,
+      "Accept": "application/json, text/javascript, */*; q=0.01",
+      "X-Requested-With": "XMLHttpRequest",
+      "Origin": "https://reg.psuad.ac.ae",
+      "Referer": "https://reg.psuad.ac.ae/PSUADPortal/Timetable",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
+      // 只要 ASPXAUTH 就够；SESSION 没有也可以
+      "Cookie": `.ASPXAUTH=${COOKIE_ASPXAUTH}` + (COOKIE_SESSION ? `; ASP.NET_SessionId=${COOKIE_SESSION}` : "")
     },
-    body: "r=0",
+    body: "r=0"
   });
 
   const text = await res.text();
 
-  // 检查是否返回 HTML 登录页
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  }
   if (text.trim().startsWith("<!DOCTYPE")) {
-    throw new Error("❌ 登录失效，请更新 COOKIE_ASPXAUTH 与 COOKIE_SESSION。");
+    throw new Error("返回的是登录页（HTML）。Cookie 过期或无效，请重新从浏览器复制 .ASPXAUTH 并更新 Secrets。");
   }
 
-  // 尝试解析 JSON
   let json;
   try {
     json = JSON.parse(text);
   } catch (e) {
-    throw new Error("❌ 返回内容不是 JSON，可能是登录页或被防火墙拦截。");
+    throw new Error("返回内容不是 JSON，可能被网关或防火墙拦截。");
   }
 
   if (!json.GetScheduleEventsList) {
-    throw new Error("❌ 未找到 GetScheduleEventsList，接口返回异常。");
+    throw new Error("JSON 中没有 GetScheduleEventsList 字段。接口可能变更。");
   }
 
-  log(`✅ 获取到 ${json.GetScheduleEventsList.length} 条课程记录。`);
-  return json.GetScheduleEventsList;
+  const events = json.GetScheduleEventsList;
+  log(`✅ 获取到 ${events.length} 条课程记录`);
+  return events;
 }
 
-// 生成 ICS 文件
 function makeICS(events) {
-  log("Generating ICS file...");
+  log("Generating ICS...");
 
   const icsEvents = events.map(e => {
-    const startParts = e.EVEN_START.split(/[- :]/).map(Number);
-    const endParts = e.EVENT_END.split(/[- :]/).map(Number);
-    const start = [startParts[0], startParts[1], startParts[2], startParts[3], startParts[4]];
-    const end = [endParts[0], endParts[1], endParts[2], endParts[3], endParts[4]];
+    const start = e.EVEN_START.split(/[- :]/).map(Number); // [Y,M,D,H,m]
+    const end   = e.EVENT_END.split(/[- :]/).map(Number);
 
     return {
-      title: `${e.COURSE_TITLE.trim()} (${e.COURSE_CODE})`,
-      start,
-      end,
-      location: e.ROOM_CODE,
-      description: `Teacher: ${e.TEACHER_NAME}\nTerm: ${e.TERM_DESC}\nCRN: ${e.COURSE_CRN}`,
+      title: `${(e.COURSE_TITLE || "").trim()} (${e.COURSE_CODE || ""})`,
+      start: [start[0], start[1], start[2], start[3], start[4]],
+      end:   [end[0],   end[1],   end[2],   end[3],   end[4]],
+      location: e.ROOM_CODE || "",
+      description: `Teacher: ${e.TEACHER_NAME || ""}\nTerm: ${e.TERM_DESC || ""}\nCRN: ${e.COURSE_CRN || ""}`
+      // 如需固定时区，可加：timezone: "Asia/Dubai"
     };
   });
 
   const { error, value } = ics.createEvents(icsEvents);
   if (error) throw error;
 
-  fs.writeFileSync("schedule.ics", value);
-  log("📅 schedule.ics 文件已生成。");
+  fs.writeFileSync("schedule.ics", value, "utf-8");
+  log("📅 schedule.ics 已生成");
 }
 
-// 主执行函数
 (async () => {
   try {
     const events = await fetchSchedule();
-    await makeICS(events);
-    log("🎉 Timetable updated successfully!");
+    makeICS(events);
+    log("🎉 Timetable updated successfully");
   } catch (err) {
     console.error("🚨 ERROR:", err.message);
+    // 让“Run npm start”这一步直接失败，便于你看到真实原因
+    process.exit(1);
   }
 })();
