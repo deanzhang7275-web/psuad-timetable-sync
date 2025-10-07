@@ -1,19 +1,32 @@
 name: Update PSUAD Timetable
+
 on:
   schedule:
-    - cron: '0 2 * * *'   # 每天凌晨2点UTC自动运行
-  workflow_dispatch:       # 手动触发选项
+    - cron: '0 2 * * *'     # 每天 02:00 UTC 运行
+  workflow_dispatch:         # 支持手动触发
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-node@v3
         with:
           node-version: 20
-      - run: npm install
-      - run: npm start
+
+      - run: npm ci || npm install
+
+      # 运行脚本时，把 Secrets 注入为环境变量
+      - name: Build ICS
+        run: npm start
+        env:
+          COOKIE_ASPXAUTH: ${{ secrets.COOKIE_ASPXAUTH }}
+          COOKIE_SESSION: ${{ secrets.COOKIE_SESSION }}   # 你没有也没关系，脚本会忽略
+
+      # 仅当生成了 schedule.ics 时才提交；否则跳过，不报错
       - name: Commit updated calendar
+        if: ${{ hashFiles('schedule.ics') != '' }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
